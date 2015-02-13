@@ -16,14 +16,11 @@ public class Lab2 {
     private static final int main_delay = 500;
     private static final int additional_delay = 100;
     private static class CPU extends Thread{
-        private ReentrantLock cpuLock;
         private AtomicLong finishedTaskCount;
-        private Runnable task;
+        private volatile Runnable task;
         private boolean isWork;
-        private Thread mainThread;
 
         public CPU() {
-            cpuLock = new ReentrantLock();
             finishedTaskCount = new AtomicLong(0);
             isWork = true;
         }

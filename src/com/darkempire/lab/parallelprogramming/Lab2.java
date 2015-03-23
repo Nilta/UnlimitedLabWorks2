@@ -1,10 +1,7 @@
 package com.darkempire.lab.parallelprogramming;
 
-import javafx.util.Pair;
-
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.SynchronousQueue;
 
 /**
  * Created by siredvin on 11.02.15.

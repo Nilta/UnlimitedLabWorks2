@@ -1,11 +1,10 @@
 package com.darkempire.lab.parallelprogramming;
 
-import com.darkempire.anji.log.Log;
+import javafx.util.Pair;
 
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.SynchronousQueue;
 
 /**
  * Created by siredvin on 11.02.15.
@@ -13,118 +12,171 @@ import java.util.concurrent.locks.ReentrantLock;
  * @author siredvin
  */
 public class Lab2 {
-    private static final int main_delay = 500;
-    private static final int additional_delay = 100;
-    private static class CPU extends Thread{
-        private AtomicLong finishedTaskCount;
-        private volatile Runnable task;
-        private boolean isWork;
+    private static final int sleepTime = 500;
+    private static final int operationCount = 50;
+    private static final CPU cpu1 = new CPU();
+    private static final CPU cpu2 = new CPU();
+    private static final CPUQueue cpuQueue = new CPUQueue();
+    private static volatile boolean isFinished;
+    private static final Random rand = new Random();
 
-        public CPU() {
-            finishedTaskCount = new AtomicLong(0);
-            isWork = true;
+    public static void main(String[] args) {
+        CPUProcessFirst first = new CPUProcessFirst();
+        CPUProcessSecond second = new CPUProcessSecond();
+        cpu1.start();
+        cpu2.start();
+        first.start();
+        second.start();
+        try {
+            first.join();
+            second.join();
+            cpu1.join();
+            cpu2.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();//TODO:обробити
         }
+        System.out.println("Кількість згенерований потоків");
+        System.out.println("Перший генератор:"+first.generatedCount);
+        System.out.println("Другий генератор:"+second.generatedCount);
+        System.out.println("Кількість знищених потоків:");
+        System.out.println("Перший потік:" + first.failedCount);
+        System.out.println("Другий потік(залишок черги):" + cpuQueue.queue.size());
+        System.out.println("Відсоток знищених потоків:"+ Double.valueOf(first.failedCount/(double)first.generatedCount));
+        System.out.println("Максимальний розмір черги:" + cpuQueue.max_len);
+    }
 
-        public boolean isFree(){
-            return task==null;
-        }
+    public static Runnable generate(){
+        return () -> {
+            System.out.println(Math.sin(Math.random()));
+            try {
+                Thread.sleep(rand.nextInt(sleepTime));
+            } catch (InterruptedException e) {
+                e.printStackTrace();//TODO:обробити
+            }
+        };
+    }
 
-        public void setWork(boolean value){
-            this.isWork = value;
-        }
-        public void setTask(Runnable runnable){
-            task = runnable;
-        }
+    private static class CPUProcessFirst extends Thread{
+        public int generatedCount;
+        public int failedCount;
 
-        public void makeSome(Runnable runnable){
-            runnable.run();
-            finishedTaskCount.incrementAndGet();
-            task = null;
-        }
-
-        public long getFinishedTaskCount(){
-            return finishedTaskCount.get();
+        public CPUProcessFirst() {
+            generatedCount = failedCount = 0;
         }
 
         @Override
-        public void run(){
-            while (isWork){
-                if (task!=null){
-                    makeSome(task);
+        public void run() {
+            while (!isFinished) {
+                Runnable task = generate();
+                generatedCount++;
+                System.out.println("1:"+generatedCount);
+                if (!cpu1.isBusy()) {
+                    cpu1.setTask(task);
+                } else {
+                    if (!cpu2.isBusy()) {
+                        cpu2.setTask(task);
+                    } else {
+                        failedCount++;
+                    }
                 }
                 try {
-                    Thread.sleep(main_delay);
+                    Thread.sleep(rand.nextInt(sleepTime));
                 } catch (InterruptedException e) {
-                    Log.err(Log.logIndex, e);
+                    e.printStackTrace();//TODO:обробити
                 }
             }
         }
     }
 
-    public static void main(String[] args) throws InterruptedException {
-        CPU cpu1 = new CPU(),cpu2 = new CPU(),cpu3 = new CPU(),cpu4 = new CPU();
-        cpu1.start();
-        cpu2.start();
-        cpu3.start();
-        cpu4.start();
-        Random rand = new Random();
-        ConcurrentLinkedQueue<String> list = new ConcurrentLinkedQueue<>();
-        long all_count = 0;
-        for (int i=0;i<50;i++){
-            Runnable task = ()-> {
-                double step = rand.nextDouble()+0.1;
-                double finish = rand.nextDouble()*100;
-                double sum = 0;
-                for (double a=0;a<finish;a+=step){
-                    sum += a;
-                }
-                list.add("Отримана сумма "+ sum+"; Обчисляли сумму до "+finish+", з кроком "+step);
-            };
-            int run_count =0;
-            if (cpu1.isFree()){
-                cpu1.setTask(task);
-                run_count=0;
-                all_count++;
-            } else {
-                if (cpu2.isFree()){
+    private static class CPUProcessSecond extends Thread{
+        public int generatedCount;
+        public int failedCount;
+
+        public CPUProcessSecond() {
+            generatedCount = failedCount = 0;
+        }
+
+        @Override
+        public void run() {
+            for (int i=0;i<operationCount;i++){
+                Runnable task = generate();
+                generatedCount++;
+                System.out.println("2:"+generatedCount);
+                if (!cpu2.isBusy()) {
                     cpu2.setTask(task);
-                    run_count=1;
-                    all_count++;
                 } else {
-                    if (cpu3.isFree()){
-                        cpu3.setTask(task);
-                        run_count=2;
-                        all_count++;
+                    cpuQueue.put(task);
+                }
+                try {
+                    Thread.sleep(rand.nextInt(sleepTime));
+                } catch (InterruptedException e) {
+                    e.printStackTrace();//TODO:обробити
+                }
+            }
+            isFinished = true;
+        }
+    }
+
+    private static class CPUQueue{
+        private ConcurrentLinkedQueue<Runnable> queue;
+        public int max_len;
+
+        public CPUQueue() {
+            this.queue = new ConcurrentLinkedQueue<>();
+            max_len = 0;
+        }
+
+        public void put(Runnable run){
+                queue.add(run);
+                int len = queue.size();
+                if (len>max_len){
+                    max_len=len;
+                }
+        }
+
+        public boolean isPresent(){
+            return !queue.isEmpty();
+        }
+
+        public Runnable get(){
+            return queue.poll();
+        }
+    }
+    private static class CPU extends Thread{
+        private Runnable task = null;
+
+
+        public boolean isBusy(){
+            return task!=null;
+        }
+
+        public synchronized void setTask(Runnable task ){
+            if (this.task==null){
+                this.task = task;
+            }
+        }
+
+        @Override
+        public void run() {
+            while (!isFinished){
+                if (task!=null){
+                    task.run();
+                    task = null;
+                } else {
+                    if (cpuQueue.isPresent()){
+                        task = cpuQueue.get();
+                        task.run();
+                        task = null;
                     } else {
-                        if (cpu4.isFree()){
-                            cpu4.setTask(task);
-                            run_count=3;
-                            all_count++;
-                        } else {
-                            Log.err(Log.logIndex,"Немає вільних процесорів");
-                            run_count = 4;
+                        try {
+                            Thread.sleep(rand.nextInt(sleepTime));
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();//TODO:обробити
                         }
                     }
                 }
+
             }
-            while (!list.isEmpty()){
-                Log.log(Log.logIndex,list.poll());
-            }
-            int delay = rand.nextInt(main_delay) + additional_delay;
-            Log.log(Log.logIndex,"Кількість зайнятих CPU:",run_count);
-            Log.log(Log.logIndex,"Затримка на створення нового потоку:",delay);
-            Thread.sleep(delay);
         }
-        cpu1.setWork(false);
-        cpu2.setWork(false);
-        cpu3.setWork(false);
-        cpu4.setWork(false);
-        double all_count_cast = all_count;
-        double cpu1_percent = cpu1.getFinishedTaskCount()/all_count_cast;
-        double cpu2_percent = cpu2.getFinishedTaskCount()/all_count_cast;
-        double cpu3_percent = cpu3.getFinishedTaskCount()/all_count_cast;
-        double cpu4_percent = cpu4.getFinishedTaskCount()/all_count_cast;
-        Log.logf(Log.logIndex, "Відсоток оброблених процесів кожним потоком:\nCPU1:%f\nCPU2:%f\nCPU3:%f\nCPU4:%f", cpu1_percent, cpu2_percent,
-                cpu3_percent, cpu4_percent);
     }
 }

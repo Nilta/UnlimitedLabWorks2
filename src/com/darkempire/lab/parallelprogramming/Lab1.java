@@ -104,7 +104,7 @@ public class Lab1 {
     }
 
     public static void main(String[] args) {
-        int N = 40_000_000;
+        int N = 4_000_000;
         int thread_count = 4;
         double[] vector = new double[N];
         Random random = new Random();
